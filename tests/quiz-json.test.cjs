@@ -1,0 +1,4 @@
+const test=require('node:test'),assert=require('node:assert/strict');const {parseQuiz}=require('../quiz-json.cjs');
+test('accepts plain JSON and harmless markdown wrappers',()=>{const text=JSON.stringify({questions:[{prompt:'A question'}]});assert.deepEqual(parseQuiz(text),JSON.parse(text));assert.deepEqual(parseQuiz('```json\n'+text+'\n```'),JSON.parse(text));});
+test('keeps only complete objects when output is cut off, preserving escaped code',()=>{const q={prompt:'What does this do?',code:'if (x) { return "hi"; }',answer:'quoted \"text\"'};const text='{"questions":['+JSON.stringify(q)+',{"prompt":"unfinished';assert.deepEqual(parseQuiz(text),{questions:[q]});assert.throws(()=>parseQuiz('{"questions":[{"prompt":"unfinished'),/no complete questions/);});
+test('does not guess malformed question fields or execute response text',()=>{assert.throws(()=>parseQuiz('{"questions":[{prompt:"bad"}]}'));assert.throws(()=>parseQuiz('alert("test")'));});

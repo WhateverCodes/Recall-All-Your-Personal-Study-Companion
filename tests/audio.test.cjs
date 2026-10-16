@@ -1,0 +1,55 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const {AudioSession}=require('../audio/session.cjs');
+const {startServer}=require('../server.cjs');
+const quality=require('../question-quality.cjs');
+const transcript='A dictionary stores key and value pairs. A lookup retrieves the value associated with a key.';
+const mockSpeech=()=>({status:()=>({installed:true,settingUp:false}),start:async()=>{},stop(){},transcribe:async()=>({segments:[{text:transcript}],language:'en'})});
+test('audio chunks are ordered, bounded, saved as text, and invalidated on stop',async()=>{
+ const saved=[],speech=mockSpeech(),audio=new AudioSession(speech,e=>saved.push(e));
+ const {id}=await audio.start('Lecture');
+ await assert.rejects(audio.start(),/already active/);
+ const chunk={id,sequence:0,audio:Buffer.from('test audio').toString('base64'),duration:20};
+ await assert.rejects(audio.chunk({...chunk,sequence:1},'http://127.0.0.1:43127'),/out of order/);
+ await assert.rejects(audio.chunk({...chunk,audio:'?not base64'},''),/Invalid audio/);
+ await assert.rejects(audio.chunk({...chunk,duration:121},''),/duration/);
+ await audio.chunk(chunk,'http://127.0.0.1:43127');
+ assert.equal(saved[0].text,transcript);assert.equal(saved[0].kind,'audio');assert.equal(saved[0].audio,undefined);assert(quality.usableSource(saved[0]));
+ await assert.rejects(audio.chunk(chunk,''),/out of order/);
+ audio.stop(id);await assert.rejects(audio.chunk({...chunk,sequence:1},''),/ended/);
+});
+test('silence produces no study entry; a stopped in-flight transcript is never saved',async()=>{
+ const saved=[],speech=mockSpeech(),audio=new AudioSession(speech,e=>saved.push(e));
+ speech.transcribe=async()=>({segments:[]});let session=await audio.start();
+ assert.equal((await audio.chunk({...session,sequence:0,audio:'YQ==',duration:20},'')).saved,false);assert.equal(saved.length,0);
+ let complete;speech.transcribe=()=>new Promise(resolve=>{complete=resolve;});
+ const pending=audio.chunk({...session,sequence:1,audio:'YQ==',duration:20},'');
+ audio.stop();complete({segments:[{text:transcript}]});await assert.rejects(pending,/discarded/);assert.equal(saved.length,0);
+});
+test('audio API respects origin and extension boundaries and feeds revision and quiz source selection',async(t)=>{
+ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'recall-audio-'));
+ const speech=mockSpeech();let passed;
+ const {server,port,token}=await startServer({port:0,directory,speech,quizGenerator:async entries=>{passed=entries;return [{id:'q',prompt:'What does a dictionary store?',answer:'pairs',sourceId:entries[0].id,source:entries[0].url,evidence:transcript}];}});
+ t.after(()=>{server.close();fs.rmSync(directory,{recursive:true,force:true});});
+ const base='http://127.0.0.1:'+port;
+ const post=(route,body={},origin=base,headers={})=>fetch(base+'/api/'+route,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
+ assert.equal((await post('audio/start',{},'https://untrusted.example')).status,403);
+ assert.equal((await post('audio/start',{},'chrome-extension://'+'a'.repeat(32),{'X-Study-Token':token})).status,403);
+ const {id}=await (await post('audio/start',{title:'Dictionary lecture'})).json();
+ assert.equal((await post('audio/chunk',{id,sequence:0,audio:'YQ==',duration:20})).status,200);
+ const revision=await (await fetch(base+'/api/revision')).json();assert.equal(revision.topics[0].title,'Dictionary lecture');assert.equal(revision.pageSummaries[0].audioSeconds,20);
+ const response=await fetch(revision.topics[0].url);assert.match(response.headers.get('content-type'),/text\/plain/);assert.match(await response.text(),/dictionary/);
+ await post('quiz',{topics:[revision.topics[0].url]});assert.equal(passed[0].kind,'audio');
+ await post('audio/stop',{id});assert.equal((await (await fetch(base+'/api/audio/status')).json()).active,false);
+ assert(!fs.readFileSync(path.join(directory,'study.json'),'utf8').includes('YQ=='));
+ await post('forget');assert.equal((await fetch(revision.topics[0].url)).status,404);
+});
+test('deleting study data cancels pending transcription at the API boundary',async(t)=>{
+ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'recall-audio-'));const speech=mockSpeech();let complete,entered;
+ const begun=new Promise(resolve=>{entered=resolve;});speech.transcribe=()=>new Promise(resolve=>{complete=resolve;entered();});
+ const {server,port}=await startServer({port:0,directory,speech});t.after(()=>{server.close();fs.rmSync(directory,{recursive:true,force:true});});
+ const base='http://127.0.0.1:'+port,post=(name,body={})=>fetch(base+'/api/'+name,{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify(body)});
+ const {id}=await (await post('audio/start')).json();const pending=post('audio/chunk',{id,sequence:0,audio:'YQ==',duration:20});await begun;
+ await post('forget');complete({segments:[{text:transcript}]});assert.equal((await pending).status,400);
+ assert.equal((await (await fetch(base+'/api/state')).json()).entries.length,0);
+});

@@ -1,0 +1,2 @@
+const test=require('node:test'),assert=require('node:assert/strict');const {shuffleOptions}=require('../shuffle-options.cjs');
+test('shuffle changes option position without changing the answer or original options',()=>{const q={kind:'mcq',options:['Correct','B','C','D'],answer:'Correct'};const shuffled=shuffleOptions(q,()=>0);assert.deepEqual(shuffled.options,['B','C','D','Correct']);assert.equal(shuffled.answer,'Correct');assert.deepEqual(q.options,['Correct','B','C','D']);assert.equal(new Set(shuffled.options).size,4);});

@@ -1,0 +1,25 @@
+const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');
+const {startServer}=require('../server.cjs');
+test('permission boundaries, pause races, deduplication, and deletion',async(t)=>{
+  const directory=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'test-data-'));
+  const {server,token,port}=await startServer({port:0,directory});t.after(()=>new Promise(resolve=>server.close(resolve)));t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const base='http://127.0.0.1:'+port,extension='chrome-extension://'+'a'.repeat(32);
+  const request=(route,body,origin=base,key)=>fetch(base+'/api/'+route,{method:body?'POST':'GET',headers:{Origin:origin,'Content-Type':'application/json',...(key?{'X-Study-Token':key}:{})},...(body?{body:JSON.stringify(body)}:{})});
+  assert.equal((await request('state',null,'https://evil.example')).status,403);
+  assert.equal((await request('state',null,extension,token)).status,403);
+  assert.equal((await request('status',null,extension,'wrong')).status,401);
+  const initial=await (await request('state')).json();assert.equal(initial.viewing,false);
+  const expected=require('../extension-id.json').id;
+  assert.equal((await fetch(base+'/api/connect',{headers:{Origin:'https://evil.example','X-Recall-Extension':expected}})).status,403);
+  assert.equal((await fetch(base+'/api/connect',{headers:{Origin:extension,'X-Recall-Extension':expected}})).status,403);
+  assert.equal((await fetch(base+'/api/connect')).status,403);
+  const paired=await fetch(base+'/api/connect',{headers:{Origin:'chrome-extension://'+expected,'X-Recall-Extension':expected}});
+  assert.equal(paired.status,200);assert.equal((await paired.json()).token,token);
+  const entry={text:'Photosynthesis transforms light energy into chemical energy that organisms can store.',url:'https://example.com/study',epoch:0};
+  assert.equal((await request('entry',entry,extension,token)).status,409);
+  const enabled=await (await request('viewing',{viewing:true})).json();entry.epoch=enabled.epoch;
+  assert.equal((await request('entry',entry,extension,token)).status,200);
+  await request('entry',entry,extension,token);assert.equal((await (await request('state')).json()).entries.length,1);
+  await request('viewing',{viewing:false});assert.equal((await request('entry',entry,extension,token)).status,409);
+  await request('forget',{});const cleared=await (await request('state')).json();assert.equal(cleared.entries.length,0);assert.equal(cleared.quizzes.length,0);
+});

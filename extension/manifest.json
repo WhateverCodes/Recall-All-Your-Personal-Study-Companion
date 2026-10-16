@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Recall-All — Reading Companion",
+  "version": "0.2.0",
+  "description": "Collect likely-read sections on sites you explicitly approve. Requires the local Recall-All app.",
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Recall-All"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2wAn5EwevMoUtio0uR/6IMMRh7BiKs3qInloZoYz2n0a35PqC7DTbFR2YGEHYuOqjfl12nIiDuWfJTR7TSoJT2XNQA27QvtXqtRJ1yyLmD2tZMC0hjHnYRNxK9XgLik+iTMdRB/rCLCBq0AnnrkidHfd3YUMOt4/EgxZ1LZ1wLvEKX39UaS3Cok/YT9oF9ZI11E0+TzscGTg1Lbi+0GH2akBOAm79TyhY9xodrnugGaFVcwCuXIp1mjzQGTgNsRjhdJ0kQxbLr35bwwJJXfWP1/yEqqr1AzlU9ivTZGDAOSripsIZomEcdOvb5kxkkYEbCWb7NiF/3nsjzY0V7Ot6wIDAQAB",
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "reading.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
