@@ -1,0 +1,24 @@
+# Personal runtime data and credentials
+/data/
+**/personal-ai.json
+**/study.json
+**/pairing-token
+**/before-restore.json
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+# Dependencies and generated files
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+work/
+*.log
+*.tmp
+*.zip
+recall-all-backup*.json
+.DS_Store
+Thumbs.db
